@@ -24,10 +24,12 @@
     "@mastra/loggers": "^1.1.1",
     "@mastra/memory": "^1.19.0",
     "@mastra/observability": "^1.13.0",
+    "pg": "^8.21.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
+    "@types/pg": "^8.20.0",
     "mastra": "^1.10.0",
     "typescript": "^6.0.3"
   }
