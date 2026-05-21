@@ -1,0 +1,10 @@
+**/node_modules
+**/.mastra
+**/*.db
+**/*.db-*
+**/.env
+**/.env.development
+**/dist
+**/output.txt
+**/.netlify
+**/.vercel
