@@ -1,6 +1,10 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 
+// ============================================================
+// Types
+// ============================================================
+
 interface AlphaVantageNewsResponse {
   feed: {
     title: string;
@@ -12,35 +16,58 @@ interface AlphaVantageNewsResponse {
   }[];
 }
 
+// ============================================================
+// Schemas
+// ============================================================
+
+const articleSchema = z.object({
+  title: z.string(),
+  summary: z.string(),
+  sentiment: z.string(),
+  sentimentScore: z.number(),
+  publishedAt: z.string(),
+  url: z.string(),
+});
+
+const newsOutputSchema = z.object({
+  ticker: z.string(),
+  articles: z.array(articleSchema),
+  overallSentiment: z.enum(['Bullish', 'Bearish', 'Neutral']),
+  avgSentimentScore: z.number(),
+});
+
+// ============================================================
+// Helpers
+// ============================================================
+
+const calculateSentiment = (score: number): 'Bullish' | 'Bearish' | 'Neutral' => {
+  if (score >= 0.35) return 'Bullish';
+  if (score <= -0.35) return 'Bearish';
+  return 'Neutral';
+};
+
+const fetchNewsFromAPI = async (ticker: string) => {
+  const url = `https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers=${ticker}&limit=5&apikey=${process.env.ALPHAVANTAGE_API_KEY}`;
+  const response = await fetch(url);
+  return response.json() as Promise<AlphaVantageNewsResponse>;
+};
+
+// ============================================================
+// Tool
+// ============================================================
+
 export const financialNewsTool = createTool({
   id: 'get-financial-news',
   description: 'Fetches recent financial news and sentiment for a company ticker symbol',
   inputSchema: z.object({
     ticker: z.string().describe('Stock ticker symbol e.g. AAPL, MSFT, TSLA'),
   }),
-  outputSchema: z.object({
-    ticker: z.string(),
-    articles: z.array(
-      z.object({
-        title: z.string(),
-        summary: z.string(),
-        sentiment: z.string(),
-        sentimentScore: z.number(),
-        publishedAt: z.string(),
-        url: z.string(),
-      })
-    ),
-    overallSentiment: z.string(),
-    avgSentimentScore: z.number(),
-  }),
+  outputSchema: newsOutputSchema,
   execute: async ({ ticker }: { ticker: string }) => {
-    const url = `https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers=${ticker}&limit=5&apikey=${process.env.ALPHAVANTAGE_API_KEY}`;
-
-    const response = await fetch(url);
-    const data = (await response.json()) as AlphaVantageNewsResponse;
+    const data = await fetchNewsFromAPI(ticker);
 
     if (!data.feed || data.feed.length === 0) {
-      throw new Error(`No news found for ticker ${ticker}`);
+      throw new Error(`No news found for ticker: ${ticker}`);
     }
 
     const articles = data.feed.slice(0, 5).map((item) => ({
@@ -55,17 +82,10 @@ export const financialNewsTool = createTool({
     const avgSentimentScore =
       articles.reduce((sum, a) => sum + a.sentimentScore, 0) / articles.length;
 
-    const overallSentiment =
-      avgSentimentScore >= 0.35
-        ? 'Bullish'
-        : avgSentimentScore <= -0.35
-          ? 'Bearish'
-          : 'Neutral';
-
     return {
       ticker,
       articles,
-      overallSentiment,
+      overallSentiment: calculateSentiment(avgSentimentScore),
       avgSentimentScore,
     };
   },
