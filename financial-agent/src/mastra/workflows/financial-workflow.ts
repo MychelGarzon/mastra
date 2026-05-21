@@ -2,9 +2,17 @@ import { createStep, createWorkflow } from '@mastra/core/workflows';
 import { Resend } from 'resend';
 import { z } from 'zod';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// ============================================================
+// Config
+// ============================================================
 
-// shared schema between steps
+const resend = new Resend(process.env.RESEND_API_KEY);
+const RECIPIENT_EMAIL = 'mychel.garzon@gmail.com';
+
+// ============================================================
+// Schemas
+// ============================================================
+
 const newsSchema = z.object({
   ticker: z.string(),
   articles: z.array(
@@ -17,25 +25,114 @@ const newsSchema = z.object({
       url: z.string(),
     })
   ),
-  overallSentiment: z.string(),
+  overallSentiment: z.enum(['Bullish', 'Bearish', 'Neutral']),
   avgSentimentScore: z.number(),
 });
 
-// email helper
+const reportSchema = z.object({
+  report: z.string(),
+  sent: z.boolean(),
+});
+
+// ============================================================
+// Helpers
+// ============================================================
+
 const sendEmailReport = async (ticker: string, report: string) => {
-  console.log('Sending email for', ticker);
+  console.log(`Sending ${ticker} report to ${RECIPIENT_EMAIL}...`);
 
   const { data, error } = await resend.emails.send({
     from: 'onboarding@resend.dev',
-    to: 'mychel.garzon@gmail.com',
+    to: RECIPIENT_EMAIL,
     subject: `Financial Report -- ${ticker}`,
     html: `<pre style="font-family: sans-serif; font-size: 14px;">${report}</pre>`,
   });
 
-  console.log('Resend response:', data, error);
+  if (error) {
+    console.error('Email error:', error);
+    throw new Error(`Failed to send email: ${error.message}`);
+  }
+
+  console.log('Email sent successfully:', data?.id);
 };
 
-// step 1 -- fetch news from Alpha Vantage
+const buildPrompt = (
+  ticker: string,
+  sentiment: string,
+  score: number,
+  articles: unknown,
+  format: string
+) => `
+The sentiment for ${ticker} is ${sentiment} (score: ${score.toFixed(2)}).
+
+Analyze these articles and produce a structured report:
+${JSON.stringify(articles, null, 2)}
+
+${format}
+`.trim();
+
+// ============================================================
+// Report formats
+// ============================================================
+
+const BULLISH_FORMAT = `
+Format:
+🟢 OPPORTUNITY REPORT -- {ticker}
+Overall Sentiment: Bullish
+
+📈 KEY OPPORTUNITIES
+- [List main positive catalysts]
+
+📰 TOP STORIES
+- [Summarize top 3 articles]
+
+⚠️ RISKS TO WATCH
+- [Any risks mentioned despite bullish sentiment]
+
+💡 RECOMMENDATION
+- [Brief actionable insight]
+`.trim();
+
+const BEARISH_FORMAT = `
+Format:
+🔴 RISK ALERT -- {ticker}
+Overall Sentiment: Bearish
+
+⚠️ KEY RISKS
+- [List main negative factors]
+
+📰 TOP STORIES
+- [Summarize top 3 articles]
+
+🛡️ DEFENSIVE CONSIDERATIONS
+- [What to watch or hedge against]
+
+💡 RECOMMENDATION
+- [Brief actionable insight]
+`.trim();
+
+const NEUTRAL_FORMAT = `
+Format:
+🟡 MARKET SUMMARY -- {ticker}
+Overall Sentiment: Neutral
+
+📊 MARKET OVERVIEW
+- [Balanced view of current situation]
+
+📰 TOP STORIES
+- [Summarize top 3 articles]
+
+🔍 FACTORS TO WATCH
+- [Key catalysts that could shift sentiment]
+
+💡 RECOMMENDATION
+- [Brief balanced insight]
+`.trim();
+
+// ============================================================
+// Step 1 -- Fetch news from Alpha Vantage
+// ============================================================
+
 const fetchNews = createStep({
   id: 'fetch-news',
   description: 'Fetches recent financial news and sentiment for a ticker',
@@ -61,7 +158,7 @@ const fetchNews = createStep({
     };
 
     if (!data.feed || data.feed.length === 0) {
-      throw new Error(`No news found for ticker ${inputData.ticker}`);
+      throw new Error(`No news found for ticker: ${inputData.ticker}`);
     }
 
     const articles = data.feed.slice(0, 5).map((item) => ({
@@ -86,145 +183,106 @@ const fetchNews = createStep({
     return {
       ticker: inputData.ticker,
       articles,
-      overallSentiment,
+      overallSentiment: overallSentiment as 'Bullish' | 'Bearish' | 'Neutral',
       avgSentimentScore,
     };
   },
 });
 
-// step 2a -- bullish report + email
+// ============================================================
+// Step 2a -- Bullish: Opportunity Report
+// ============================================================
+
 const opportunityReport = createStep({
   id: 'opportunity-report',
   description: 'Generates an opportunity report for bullish sentiment',
   inputSchema: newsSchema,
-  outputSchema: z.object({ report: z.string(), sent: z.boolean() }),
+  outputSchema: reportSchema,
   execute: async ({ inputData, mastra }) => {
     const agent = mastra?.getAgent('financialAgent');
     if (!agent) throw new Error('Financial agent not found');
 
-    const response = await agent.generate([
-      {
-        role: 'user',
-        content: `The sentiment for ${inputData.ticker} is BULLISH (score: ${inputData.avgSentimentScore.toFixed(2)}).
+    const prompt = buildPrompt(
+      inputData.ticker,
+      'BULLISH',
+      inputData.avgSentimentScore,
+      inputData.articles,
+      BULLISH_FORMAT.replace('{ticker}', inputData.ticker)
+    );
 
-Analyze these articles and produce a structured OPPORTUNITY REPORT:
-${JSON.stringify(inputData.articles, null, 2)}
-
-Format:
-🟢 OPPORTUNITY REPORT -- ${inputData.ticker}
-Overall Sentiment: Bullish
-
-📈 KEY OPPORTUNITIES
-- [List main positive catalysts]
-
-📰 TOP STORIES
-- [Summarize top 3 articles]
-
-⚠️ RISKS TO WATCH
-- [Any risks mentioned despite bullish sentiment]
-
-💡 RECOMMENDATION
-- [Brief actionable insight]`,
-      },
-    ]);
-
+    const response = await agent.generate([{ role: 'user', content: prompt }]);
     await sendEmailReport(inputData.ticker, response.text);
+
     return { report: response.text, sent: true };
   },
 });
 
-// step 2b -- bearish report + email
+// ============================================================
+// Step 2b -- Bearish: Risk Alert
+// ============================================================
+
 const riskAlert = createStep({
   id: 'risk-alert',
   description: 'Generates a risk alert for bearish sentiment',
   inputSchema: newsSchema,
-  outputSchema: z.object({ report: z.string(), sent: z.boolean() }),
+  outputSchema: reportSchema,
   execute: async ({ inputData, mastra }) => {
     const agent = mastra?.getAgent('financialAgent');
     if (!agent) throw new Error('Financial agent not found');
 
-    const response = await agent.generate([
-      {
-        role: 'user',
-        content: `The sentiment for ${inputData.ticker} is BEARISH (score: ${inputData.avgSentimentScore.toFixed(2)}).
+    const prompt = buildPrompt(
+      inputData.ticker,
+      'BEARISH',
+      inputData.avgSentimentScore,
+      inputData.articles,
+      BEARISH_FORMAT.replace('{ticker}', inputData.ticker)
+    );
 
-Analyze these articles and produce a structured RISK ALERT:
-${JSON.stringify(inputData.articles, null, 2)}
-
-Format:
-🔴 RISK ALERT -- ${inputData.ticker}
-Overall Sentiment: Bearish
-
-⚠️ KEY RISKS
-- [List main negative factors]
-
-📰 TOP STORIES
-- [Summarize top 3 articles]
-
-🛡️ DEFENSIVE CONSIDERATIONS
-- [What to watch or hedge against]
-
-💡 RECOMMENDATION
-- [Brief actionable insight]`,
-      },
-    ]);
-
+    const response = await agent.generate([{ role: 'user', content: prompt }]);
     await sendEmailReport(inputData.ticker, response.text);
+
     return { report: response.text, sent: true };
   },
 });
 
-// step 2c -- neutral report + email
+// ============================================================
+// Step 2c -- Neutral: Market Summary
+// ============================================================
+
 const standardReport = createStep({
   id: 'standard-report',
   description: 'Generates a standard report for neutral sentiment',
   inputSchema: newsSchema,
-  outputSchema: z.object({ report: z.string(), sent: z.boolean() }),
+  outputSchema: reportSchema,
   execute: async ({ inputData, mastra }) => {
     const agent = mastra?.getAgent('financialAgent');
     if (!agent) throw new Error('Financial agent not found');
 
-    const response = await agent.generate([
-      {
-        role: 'user',
-        content: `The sentiment for ${inputData.ticker} is NEUTRAL (score: ${inputData.avgSentimentScore.toFixed(2)}).
+    const prompt = buildPrompt(
+      inputData.ticker,
+      'NEUTRAL',
+      inputData.avgSentimentScore,
+      inputData.articles,
+      NEUTRAL_FORMAT.replace('{ticker}', inputData.ticker)
+    );
 
-Analyze these articles and produce a structured MARKET SUMMARY:
-${JSON.stringify(inputData.articles, null, 2)}
-
-Format:
-🟡 MARKET SUMMARY -- ${inputData.ticker}
-Overall Sentiment: Neutral
-
-📊 MARKET OVERVIEW
-- [Balanced view of current situation]
-
-📰 TOP STORIES
-- [Summarize top 3 articles]
-
-🔍 FACTORS TO WATCH
-- [Key catalysts that could shift sentiment]
-
-💡 RECOMMENDATION
-- [Brief balanced insight]`,
-      },
-    ]);
-
+    const response = await agent.generate([{ role: 'user', content: prompt }]);
     await sendEmailReport(inputData.ticker, response.text);
+
     return { report: response.text, sent: true };
   },
 });
 
-// workflow -- fetch then branch
+// ============================================================
+// Workflow -- fetch then branch by sentiment
+// ============================================================
+
 const financialWorkflow = createWorkflow({
   id: 'financial-workflow',
   inputSchema: z.object({
     ticker: z.string().describe('Stock ticker e.g. AAPL'),
   }),
-  outputSchema: z.object({
-    report: z.string(),
-    sent: z.boolean(),
-  }),
+  outputSchema: reportSchema,
 })
   .then(fetchNews)
   .branch([
