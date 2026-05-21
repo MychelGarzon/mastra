@@ -24,6 +24,7 @@
     "@mastra/loggers": "^1.1.1",
     "@mastra/memory": "^1.19.0",
     "@mastra/observability": "^1.13.0",
+    "resend": "^6.12.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
