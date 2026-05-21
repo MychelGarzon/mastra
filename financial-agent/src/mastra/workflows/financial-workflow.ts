@@ -1,13 +1,13 @@
-import { createStep, createWorkflow } from '@mastra/core/workflows';
-import { Resend } from 'resend';
-import { z } from 'zod';
+import { createStep, createWorkflow } from "@mastra/core/workflows";
+import { Resend } from "resend";
+import { z } from "zod";
 
 // ============================================================
 // Config
 // ============================================================
 
 const resend = new Resend(process.env.RESEND_API_KEY);
-const RECIPIENT_EMAIL = 'mychel.garzon@gmail.com';
+const RECIPIENT_EMAIL = "mychel.garzon@gmail.com";
 
 // ============================================================
 // Schemas
@@ -23,9 +23,9 @@ const newsSchema = z.object({
       sentimentScore: z.number(),
       publishedAt: z.string(),
       url: z.string(),
-    })
+    }),
   ),
-  overallSentiment: z.enum(['Bullish', 'Bearish', 'Neutral']),
+  overallSentiment: z.enum(["Bullish", "Bearish", "Neutral"]),
   avgSentimentScore: z.number(),
 });
 
@@ -42,18 +42,18 @@ const sendEmailReport = async (ticker: string, report: string) => {
   console.log(`Sending ${ticker} report to ${RECIPIENT_EMAIL}...`);
 
   const { data, error } = await resend.emails.send({
-    from: 'onboarding@resend.dev',
+    from: "onboarding@resend.dev",
     to: RECIPIENT_EMAIL,
     subject: `Financial Report -- ${ticker}`,
     html: `<pre style="font-family: sans-serif; font-size: 14px;">${report}</pre>`,
   });
 
   if (error) {
-    console.error('Email error:', error);
+    console.error("Email error:", error);
     throw new Error(`Failed to send email: ${error.message}`);
   }
 
-  console.log('Email sent successfully:', data?.id);
+  console.log("Email sent successfully:", data?.id);
 };
 
 const buildPrompt = (
@@ -61,8 +61,9 @@ const buildPrompt = (
   sentiment: string,
   score: number,
   articles: unknown,
-  format: string
-) => `
+  format: string,
+) =>
+  `
 The sentiment for ${ticker} is ${sentiment} (score: ${score.toFixed(2)}).
 
 Analyze these articles and produce a structured report:
@@ -134,14 +135,14 @@ Overall Sentiment: Neutral
 // ============================================================
 
 const fetchNews = createStep({
-  id: 'fetch-news',
-  description: 'Fetches recent financial news and sentiment for a ticker',
+  id: "fetch-news",
+  description: "Fetches recent financial news and sentiment for a ticker",
   inputSchema: z.object({
-    ticker: z.string().describe('Stock ticker e.g. AAPL'),
+    ticker: z.string().describe("Stock ticker e.g. AAPL"),
   }),
   outputSchema: newsSchema,
   execute: async ({ inputData }) => {
-    if (!inputData) throw new Error('Input data not found');
+    if (!inputData) throw new Error("Input data not found");
 
     const url = `https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers=${inputData.ticker}&limit=5&apikey=${process.env.ALPHAVANTAGE_API_KEY}`;
 
@@ -172,18 +173,18 @@ const fetchNews = createStep({
 
     const avgSentimentScore =
       articles.reduce((sum, a) => sum + a.sentimentScore, 0) / articles.length;
+    const getSentiment = (score: number): "Bullish" | "Bearish" | "Neutral" => {
+      if (score >= 0.35) return "Bullish";
+      if (score <= -0.35) return "Bearish";
+      return "Neutral";
+    };
 
-    const overallSentiment =
-      avgSentimentScore >= 0.35
-        ? 'Bullish'
-        : avgSentimentScore <= -0.35
-          ? 'Bearish'
-          : 'Neutral';
+    const overallSentiment = getSentiment(avgSentimentScore);
 
     return {
       ticker: inputData.ticker,
       articles,
-      overallSentiment: overallSentiment as 'Bullish' | 'Bearish' | 'Neutral',
+      overallSentiment: overallSentiment,
       avgSentimentScore,
     };
   },
@@ -194,23 +195,23 @@ const fetchNews = createStep({
 // ============================================================
 
 const opportunityReport = createStep({
-  id: 'opportunity-report',
-  description: 'Generates an opportunity report for bullish sentiment',
+  id: "opportunity-report",
+  description: "Generates an opportunity report for bullish sentiment",
   inputSchema: newsSchema,
   outputSchema: reportSchema,
   execute: async ({ inputData, mastra }) => {
-    const agent = mastra?.getAgent('financialAgent');
-    if (!agent) throw new Error('Financial agent not found');
+    const agent = mastra?.getAgent("financialAgent");
+    if (!agent) throw new Error("Financial agent not found");
 
     const prompt = buildPrompt(
       inputData.ticker,
-      'BULLISH',
+      "BULLISH",
       inputData.avgSentimentScore,
       inputData.articles,
-      BULLISH_FORMAT.replace('{ticker}', inputData.ticker)
+      BULLISH_FORMAT.replace("{ticker}", inputData.ticker),
     );
 
-    const response = await agent.generate([{ role: 'user', content: prompt }]);
+    const response = await agent.generate([{ role: "user", content: prompt }]);
     await sendEmailReport(inputData.ticker, response.text);
 
     return { report: response.text, sent: true };
@@ -222,23 +223,23 @@ const opportunityReport = createStep({
 // ============================================================
 
 const riskAlert = createStep({
-  id: 'risk-alert',
-  description: 'Generates a risk alert for bearish sentiment',
+  id: "risk-alert",
+  description: "Generates a risk alert for bearish sentiment",
   inputSchema: newsSchema,
   outputSchema: reportSchema,
   execute: async ({ inputData, mastra }) => {
-    const agent = mastra?.getAgent('financialAgent');
-    if (!agent) throw new Error('Financial agent not found');
+    const agent = mastra?.getAgent("financialAgent");
+    if (!agent) throw new Error("Financial agent not found");
 
     const prompt = buildPrompt(
       inputData.ticker,
-      'BEARISH',
+      "BEARISH",
       inputData.avgSentimentScore,
       inputData.articles,
-      BEARISH_FORMAT.replace('{ticker}', inputData.ticker)
+      BEARISH_FORMAT.replace("{ticker}", inputData.ticker),
     );
 
-    const response = await agent.generate([{ role: 'user', content: prompt }]);
+    const response = await agent.generate([{ role: "user", content: prompt }]);
     await sendEmailReport(inputData.ticker, response.text);
 
     return { report: response.text, sent: true };
@@ -250,23 +251,23 @@ const riskAlert = createStep({
 // ============================================================
 
 const standardReport = createStep({
-  id: 'standard-report',
-  description: 'Generates a standard report for neutral sentiment',
+  id: "standard-report",
+  description: "Generates a standard report for neutral sentiment",
   inputSchema: newsSchema,
   outputSchema: reportSchema,
   execute: async ({ inputData, mastra }) => {
-    const agent = mastra?.getAgent('financialAgent');
-    if (!agent) throw new Error('Financial agent not found');
+    const agent = mastra?.getAgent("financialAgent");
+    if (!agent) throw new Error("Financial agent not found");
 
     const prompt = buildPrompt(
       inputData.ticker,
-      'NEUTRAL',
+      "NEUTRAL",
       inputData.avgSentimentScore,
       inputData.articles,
-      NEUTRAL_FORMAT.replace('{ticker}', inputData.ticker)
+      NEUTRAL_FORMAT.replace("{ticker}", inputData.ticker),
     );
 
-    const response = await agent.generate([{ role: 'user', content: prompt }]);
+    const response = await agent.generate([{ role: "user", content: prompt }]);
     await sendEmailReport(inputData.ticker, response.text);
 
     return { report: response.text, sent: true };
@@ -278,24 +279,24 @@ const standardReport = createStep({
 // ============================================================
 
 const financialWorkflow = createWorkflow({
-  id: 'financial-workflow',
+  id: "financial-workflow",
   inputSchema: z.object({
-    ticker: z.string().describe('Stock ticker e.g. AAPL'),
+    ticker: z.string().describe("Stock ticker e.g. AAPL"),
   }),
   outputSchema: reportSchema,
 })
   .then(fetchNews)
   .branch([
     [
-      async ({ inputData }) => inputData.overallSentiment === 'Bullish',
+      async ({ inputData }) => inputData.overallSentiment === "Bullish",
       opportunityReport,
     ],
     [
-      async ({ inputData }) => inputData.overallSentiment === 'Bearish',
+      async ({ inputData }) => inputData.overallSentiment === "Bearish",
       riskAlert,
     ],
     [
-      async ({ inputData }) => inputData.overallSentiment === 'Neutral',
+      async ({ inputData }) => inputData.overallSentiment === "Neutral",
       standardReport,
     ],
   ]);
