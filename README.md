@@ -1,4 +1,4 @@
-# Mastra AI Agents
+# Mastra AI Agent
 
 A collection of production-grade AI agent systems built with
 [Mastra](https://mastra.ai), TypeScript, and Bun.
@@ -43,6 +43,23 @@ and delivers structured reports via email and Slack.
 
 ---
 
+### 💬 [Portfolio Agent](./portfolio-agent)
+
+A conversational AI assistant that connects directly to a Postgres
+database and answers natural language questions about a stock portfolio.
+Ask about holdings, transactions, watchlist, and performance -- no SQL required.
+
+**Key patterns:**
+
+- Natural language to database query translation
+- Multi-tool agent with one tool per query type
+- Typed database results via Zod schemas
+- Conversational memory across the session
+
+**Stack:** Mastra, TypeScript, Bun, Groq, Neon Postgres, Zod
+
+---
+
 ## Architecture Philosophy
 
 These projects follow a core principle for production AI systems:
@@ -70,7 +87,7 @@ Is the logic open-ended or conversational?
 ### Data Flow Pattern
 
 ```
-External API (data layer)
+External API / Database (data layer)
       ↓
 Tool (typed, validated via Zod)
       ↓
@@ -85,16 +102,17 @@ Notification (email, Slack)
 
 ## Tech Stack
 
-| Layer          | Technology                  |
-| -------------- | --------------------------- |
-| Framework      | Mastra                      |
-| Language       | TypeScript                  |
-| Runtime        | Bun                         |
-| LLM            | Groq (llama-3.1-8b-instant) |
-| Financial Data | Alpha Vantage               |
-| Email          | Resend                      |
-| Alerts         | Slack Webhooks              |
-| Validation     | Zod                         |
+| Layer          | Technology                                            |
+| -------------- | ----------------------------------------------------- |
+| Framework      | Mastra                                                |
+| Language       | TypeScript                                            |
+| Runtime        | Bun                                                   |
+| LLM            | Groq (llama-3.1-8b-instant / llama-3.3-70b-versatile) |
+| Financial Data | Alpha Vantage                                         |
+| Database       | Neon Postgres                                         |
+| Email          | Resend                                                |
+| Alerts         | Slack Webhooks                                        |
+| Validation     | Zod                                                   |
 
 ## Getting Started
 
@@ -128,6 +146,7 @@ GROQ_API_KEY=           # https://console.groq.com
 ALPHAVANTAGE_API_KEY=   # https://www.alphavantage.co/support/#api-key
 RESEND_API_KEY=         # https://resend.com
 SLACK_WEBHOOK_URL=      # https://api.slack.com/apps (price-checker only)
+DATABASE_URL=           # https://neon.tech (portfolio-agent only)
 ```
 
 ## Author
